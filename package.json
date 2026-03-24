@@ -1,0 +1,33 @@
+{
+  "name": "customer-support",
+  "version": "1.0.0",
+  "description": "Customer Support Ticket Management System",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "serverless offline",
+    "deploy": "serverless deploy",
+    "remove": "serverless remove",
+    "lint": "eslint . --ext .js",
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "serverless-dynamodb-local": "^0.2.40",
+    "serverless-offline": "^13.9.0",
+    "serverless-ssm-fetch": "^2.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.858.0",
+    "@aws-sdk/client-s3": "^3.932.0",
+    "@aws-sdk/client-sqs": "^3.932.0",
+    "@aws-sdk/lib-dynamodb": "^3.858.0",
+    "busboy": "^1.6.0",
+    "ioredis": "^5.8.2",
+    "serverless": "^3.40.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "uuid": "^11.1.0"
+  }
+}

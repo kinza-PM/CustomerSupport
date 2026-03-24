@@ -1,0 +1,275 @@
+service: admin-customer-support
+frameworkVersion: "3"
+
+custom:
+  serverlessSsmFetch: {}
+   
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: eu-west-1
+  stage: ${opt:stage, 'dev'}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - arn:aws:s3:::customer-support-attachments-${self:provider.stage}/*
+
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:GetItem
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:DeleteItem
+          Resource:
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-tickets-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-tickets-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-reasons-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-status-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-history-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-history-${self:provider.stage}/index/*
+
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+          Resource:
+            - arn:aws:sqs:eu-west-1:${aws:accountId}:error-log-queue-${self:provider.stage}
+
+  environment:
+    STAGE: ${self:provider.stage}
+    SUPPORT_TICKETS_TABLE: support-tickets-${self:provider.stage}
+    TICKET_REASONS_TABLE: ticket-reasons-${self:provider.stage}
+    TICKET_STATUS_TABLE: ticket-status-${self:provider.stage}
+    TICKET_HISTORY_TABLE: ticket-history-${self:provider.stage}
+    ATTACHMENTS_BUCKET: customer-support-attachments-${self:provider.stage}
+    ERROR_LOG_QUEUE_URL: https://sqs.eu-west-1.amazonaws.com/${aws:accountId}/error-log-queue-${self:provider.stage}
+
+package:
+  patterns:
+    - '!./**'
+    - handlers/**
+    - helper/**
+    - lib/**
+    - package.json
+    - package-lock.json
+    - node_modules/**
+    - '!node_modules/aws-sdk/**'
+    - '!node_modules/**/test/**'
+    - '!node_modules/**/tests/**'
+    - '!node_modules/**/docs/**'
+    - '!node_modules/**/examples/**'
+    - '!node_modules/**/*.md'
+    - '!node_modules/**/*.ts'
+    - '!node_modules/**/*.map'
+  excludeDevDependencies: true
+
+functions:
+  # Ticket Management Functions
+  createTicket:
+    handler: handlers/createTicket.handler
+    timeout: 30
+    memorySize: 512
+    events:
+      - http:
+          path: /ticket
+          method: post
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  updateTicket:
+    handler: handlers/updateTicket.handler
+    timeout: 30
+    memorySize: 512
+    layers:
+      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+    events:
+      - http:
+          path: /ticket/{ticketId}
+          method: put
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  getAllTickets:
+    handler: handlers/getAllTickets.handler
+    timeout: 30
+    memorySize: 512
+    layers:
+      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+    events:
+      - http:
+          path: /tickets
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  getTicketById:
+    handler: handlers/getTicketById.handler
+    timeout: 30
+    memorySize: 512
+    layers:
+      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+    events:
+      - http:
+          path: /ticket/{ticketId}
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  deleteTicket:
+    handler: handlers/deleteTicket.handler
+    timeout: 30
+    memorySize: 512
+    layers:
+      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+    events:
+      - http:
+          path: /ticket/{ticketId}
+          method: delete
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+resources:
+  Resources:
+   
+    ###########################
+    ### S3 Buckets
+    ###########################
+    AttachmentsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: customer-support-attachments-${self:provider.stage}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+                - DELETE
+              AllowedHeaders:
+                - '*'
+              MaxAge: 3000
+
+    ###########################
+    ### DynamoDB Tables
+    ###########################
+    SupportTicketsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: support-tickets-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: ticketId
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+          - AttributeName: status
+            AttributeType: S
+          - AttributeName: assignedTo
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: ticketId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: StatusIndex
+            KeySchema:
+              - AttributeName: status
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: AssignedToIndex
+            KeySchema:
+              - AttributeName: assignedTo
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+    TicketHistoryTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ticket-history-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: historyId
+            AttributeType: S
+          - AttributeName: ticketId
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+        KeySchema:
+          - AttributeName: historyId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: TicketIdIndex
+            KeySchema:
+              - AttributeName: ticketId
+                KeyType: HASH
+              - AttributeName: timestamp
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+  Outputs:
+    AttachmentsBucketName:
+      Value: !Ref AttachmentsBucket
+
+plugins:
+  - serverless-ssm-fetch

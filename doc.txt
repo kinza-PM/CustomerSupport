@@ -1,0 +1,2 @@
+serverless deploy --config .\serverless-dev.yaml
+serverless info --config serverless-dev.yaml    
