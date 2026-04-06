@@ -37,7 +37,7 @@ export const handler = async (event, context) => {
         }
 
         // Validate required fields
-        const { name, email, contact, reason, message } = fields;
+        const { name, email, contact, reason, message, source, conversationId, category, subcategory } = fields;
 
         if (!name || !email || !contact || !reason || !message) {
             return createResponse(400, {
@@ -45,6 +45,12 @@ export const handler = async (event, context) => {
                 message: "Missing required fields: name, email, contact, reason, message"
             });
         }
+
+        // Optional chatbot metadata
+        const chatbotSource = source || null;
+        const chatbotConversationId = conversationId || null;
+        const chatbotCategory = category || null;
+        const chatbotSubcategory = subcategory || null;
 
         // Validate email
         if (!isValidEmail(email)) {
@@ -132,6 +138,20 @@ export const handler = async (event, context) => {
             updatedAt: { S: timestamp }
         };
 
+        // Add optional chatbot metadata if provided
+        if (chatbotSource) {
+            ticketData.source = { S: chatbotSource };
+        }
+        if (chatbotConversationId) {
+            ticketData.conversationId = { S: chatbotConversationId };
+        }
+        if (chatbotCategory) {
+            ticketData.category = { S: chatbotCategory };
+        }
+        if (chatbotSubcategory) {
+            ticketData.subcategory = { S: chatbotSubcategory };
+        }
+
         // Save to DynamoDB
         const putCmd = new PutItemCommand({
             TableName: process.env.SUPPORT_TICKETS_TABLE,
@@ -157,23 +177,39 @@ export const handler = async (event, context) => {
         );
 
         // Return response
+        const responseData = {
+            ticketId,
+            name: sanitizeInput(name),
+            email: email.toLowerCase(),
+            contact: {
+                code: contact.code,
+                number: contact.number
+            },
+            reason,
+            status: defaultStatus,
+            message: sanitizeInput(message),
+            attachments: uploadedAttachments,
+            createdAt: timestamp
+        };
+
+        // Include optional chatbot metadata in response if provided
+        if (chatbotSource) {
+            responseData.source = chatbotSource;
+        }
+        if (chatbotConversationId) {
+            responseData.conversationId = chatbotConversationId;
+        }
+        if (chatbotCategory) {
+            responseData.category = chatbotCategory;
+        }
+        if (chatbotSubcategory) {
+            responseData.subcategory = chatbotSubcategory;
+        }
+
         return createResponse(201, {
             success: true,
             message: "Ticket created successfully",
-            data: {
-                ticketId,
-                name: sanitizeInput(name),
-                email: email.toLowerCase(),
-                contact: {
-                    code: contact.code,
-                    number: contact.number
-                },
-                reason,
-                status: defaultStatus,
-                message: sanitizeInput(message),
-                attachments: uploadedAttachments,
-                createdAt: timestamp
-            }
+            data: responseData
         });
 
     } catch (error) {
