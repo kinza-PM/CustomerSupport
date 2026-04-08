@@ -46,33 +46,33 @@ const defaultStatuses = [
 
 const defaultReasons = [
     {
-        reasonId: 'technical-issue',
-        name: 'Technical Issue',
-        description: 'Problems with technical functionality',
+        reasonId: 'booking-issues',
+        name: 'Booking Issues',
+        description: 'Issues related to flight, hotel, or transport bookings',
         isActive: true
     },
     {
-        reasonId: 'billing-inquiry',
-        name: 'Billing Inquiry',
-        description: 'Questions about billing and payments',
+        reasonId: 'refund-request',
+        name: 'Refund Request',
+        description: 'Request for refund or cancellation',
         isActive: true
     },
     {
-        reasonId: 'feature-request',
-        name: 'Feature Request',
-        description: 'Request for new features',
-        isActive: true
-    },
-    {
-        reasonId: 'bug-report',
-        name: 'Bug Report',
-        description: 'Report software bugs',
+        reasonId: 'technical-support',
+        name: 'Technical Support',
+        description: 'Technical issues with the website or app',
         isActive: true
     },
     {
         reasonId: 'general-inquiry',
         name: 'General Inquiry',
         description: 'General questions and inquiries',
+        isActive: true
+    },
+    {
+        reasonId: 'other',
+        name: 'Other',
+        description: 'Other issues not listed above',
         isActive: true
     }
 ];

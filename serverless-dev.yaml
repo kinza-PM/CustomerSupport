@@ -9,6 +9,7 @@ provider:
   runtime: nodejs20.x
   region: eu-west-1
   stage: ${opt:stage, 'dev'}
+  versionFunctions: false
 
   iam:
     role:
@@ -161,6 +162,24 @@ functions:
       - http:
           path: /ticket/{ticketId}
           method: delete
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  getReasons:
+    handler: handlers/getReasons.handler
+    timeout: 30
+    memorySize: 256
+    events:
+      - http:
+          path: /reasons
+          method: get
           cors:
             origin: '*'
             headers:
