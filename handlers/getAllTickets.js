@@ -12,78 +12,131 @@ export const handler = async (event, context) => {
 
         // Get query parameters
         const queryParams = event.queryStringParameters || {};
-        const { status, email, assignedTo, limit, lastEvaluatedKey, all } = queryParams;
+        const { 
+            status, 
+            email, 
+            assignedTo, 
+            category,
+            priority,
+            search,
+            dateFrom,
+            dateTo,
+            ageFilter,
+            limit, 
+            lastEvaluatedKey, 
+            all 
+        } = queryParams;
 
-        // Require at least one filter to avoid expensive Scan operations
-        if (!status && !email && !assignedTo && all !== 'true') {
-            return createResponse(400, {
-                success: false,
-                message: "At least one filter (status, email, or assignedTo) is required"
-            });
+        // Build filter expressions for Scan
+        let filterExpressions = [];
+        let expressionAttributeNames = {};
+        let expressionAttributeValues = {};
+
+        // Status filter
+        if (status && status !== 'All') {
+            filterExpressions.push('#status = :status');
+            expressionAttributeNames['#status'] = 'status';
+            expressionAttributeValues[':status'] = { S: status };
         }
 
-        let command;
+        // Email filter
+        if (email) {
+            filterExpressions.push('email = :email');
+            expressionAttributeValues[':email'] = { S: email.toLowerCase() };
+        }
 
-        // Allow fetching all tickets with all=true parameter
-        if (all === 'true') {
-            command = new ScanCommand({
-                TableName: process.env.SUPPORT_TICKETS_TABLE,
-                Limit: limit ? parseInt(limit) : 50,
-                ...(lastEvaluatedKey && {
-                    ExclusiveStartKey: JSON.parse(
-                        Buffer.from(lastEvaluatedKey, 'base64').toString('utf-8')
-                    )
-                })
-            });
-        } else {
-            let commandParams = {
-                TableName: process.env.SUPPORT_TICKETS_TABLE,
-                Limit: limit ? parseInt(limit) : 50
-            };
+        // AssignedTo filter
+        if (assignedTo && assignedTo !== 'All') {
+            filterExpressions.push('assignedTo = :assignedTo');
+            expressionAttributeValues[':assignedTo'] = { S: assignedTo };
+        }
 
-            // Add pagination
-            if (lastEvaluatedKey) {
-                try {
-                    commandParams.ExclusiveStartKey = JSON.parse(
-                        Buffer.from(lastEvaluatedKey, 'base64').toString('utf-8')
-                    );
-                } catch (error) {
-                    return createResponse(400, {
-                        success: false,
-                        message: "Invalid pagination token"
-                    });
-                }
+        // Category/Reason filter
+        if (category && category !== 'All') {
+            filterExpressions.push('reason = :reason');
+            expressionAttributeValues[':reason'] = { S: category };
+        }
+
+        // Priority filter
+        if (priority && priority !== 'All') {
+            filterExpressions.push('priority = :priority');
+            expressionAttributeValues[':priority'] = { S: priority };
+        }
+
+        // Search filter (searches in ticketId, name, email, message)
+        // Note: DynamoDB doesn't support case-insensitive search, so we use contains() which is case-sensitive
+        if (search && search.trim()) {
+            const searchTerm = search.trim();
+            filterExpressions.push('(contains(ticketId, :search) OR contains(#name, :search) OR contains(email, :search) OR contains(#message, :search))');
+            expressionAttributeNames['#name'] = 'name';
+            expressionAttributeNames['#message'] = 'message';
+            expressionAttributeValues[':search'] = { S: searchTerm };
+        }
+
+        // Date range filter
+        if (dateFrom) {
+            filterExpressions.push('createdAt >= :dateFrom');
+            expressionAttributeValues[':dateFrom'] = { S: dateFrom };
+        }
+        if (dateTo) {
+            filterExpressions.push('createdAt <= :dateTo');
+            expressionAttributeValues[':dateTo'] = { S: dateTo };
+        }
+
+        // Age filter (show tickets older than threshold)
+        if (ageFilter && ageFilter !== 'All') {
+            console.log('🔍 Age filter received:', ageFilter);
+            const now = new Date();
+            let thresholdDate;
+            
+            if (ageFilter === '24h') {
+                thresholdDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            } else if (ageFilter === '3d') {
+                thresholdDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+            } else if (ageFilter === '7d') {
+                thresholdDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
             }
+            
+            if (thresholdDate) {
+                console.log('📅 Age threshold date:', thresholdDate.toISOString());
+                // Show tickets created BEFORE the threshold (older tickets)
+                filterExpressions.push('createdAt < :ageThreshold');
+                expressionAttributeValues[':ageThreshold'] = { S: thresholdDate.toISOString() };
+            }
+        }
 
-        // Query by status using GSI
-        if (status) {
-            commandParams.IndexName = 'StatusIndex';
-            commandParams.KeyConditionExpression = '#status = :status';
-            commandParams.ExpressionAttributeNames = { '#status': 'status' };
-            commandParams.ExpressionAttributeValues = { ':status': { S: status } };
-            commandParams.ScanIndexForward = false; // Sort by createdAt descending
-            
-            command = new QueryCommand(commandParams);
+        // Build Scan command with filters
+        let commandParams = {
+            TableName: process.env.SUPPORT_TICKETS_TABLE,
+            Limit: limit ? parseInt(limit) : 50
+        };
+
+        // Add filter expression if any filters are applied
+        if (filterExpressions.length > 0) {
+            commandParams.FilterExpression = filterExpressions.join(' AND ');
         }
-        // Query by email using GSI
-        else if (email) {
-            commandParams.IndexName = 'EmailIndex';
-            commandParams.KeyConditionExpression = 'email = :email';
-            commandParams.ExpressionAttributeValues = { ':email': { S: email.toLowerCase() } };
-            commandParams.ScanIndexForward = false;
-            
-            command = new QueryCommand(commandParams);
+        if (Object.keys(expressionAttributeNames).length > 0) {
+            commandParams.ExpressionAttributeNames = expressionAttributeNames;
         }
-        // Query by assignedTo using GSI
-        else if (assignedTo) {
-            commandParams.IndexName = 'AssignedToIndex';
-            commandParams.KeyConditionExpression = 'assignedTo = :assignedTo';
-            commandParams.ExpressionAttributeValues = { ':assignedTo': { S: assignedTo } };
-            commandParams.ScanIndexForward = false;
-            
-            command = new QueryCommand(commandParams);
+        if (Object.keys(expressionAttributeValues).length > 0) {
+            commandParams.ExpressionAttributeValues = expressionAttributeValues;
         }
+
+        // Add pagination
+        if (lastEvaluatedKey) {
+            try {
+                commandParams.ExclusiveStartKey = JSON.parse(
+                    Buffer.from(lastEvaluatedKey, 'base64').toString('utf-8')
+                );
+            } catch (error) {
+                return createResponse(400, {
+                    success: false,
+                    message: "Invalid pagination token"
+                });
+            }
         }
+
+        const command = new ScanCommand(commandParams);
 
         const result = await dynamo.send(command);
 
@@ -103,9 +156,34 @@ export const handler = async (event, context) => {
             adminNotes: item.adminNotes?.S,
             assignedTo: item.assignedTo?.S,
             priority: item.priority?.S || 'normal',
+            source: item.source?.S,
+            conversationId: item.conversationId?.S,
+            category: item.category?.S,
+            subcategory: item.subcategory?.S,
             createdAt: item.createdAt.S,
             updatedAt: item.updatedAt.S
         }));
+
+        // Calculate statistics from filtered results
+        const now = new Date();
+        const slaThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        
+        const stats = {
+            openTickets: result.Items.filter(item => 
+                item.status.S === 'open' || item.status.S === 'pending'
+            ).length,
+            slaBreached: result.Items.filter(item => {
+                const isOpen = item.status.S === 'open' || item.status.S === 'pending';
+                const createdAt = new Date(item.createdAt.S);
+                return isOpen && createdAt < slaThreshold;
+            }).length,
+            unassignedTickets: result.Items.filter(item => 
+                !item.assignedTo || !item.assignedTo.S
+            ).length,
+            escalatedTickets: result.Items.filter(item => 
+                item.priority?.S === 'high' || item.priority?.S === 'urgent'
+            ).length
+        };
 
         // Create pagination token
         let nextToken = null;
@@ -129,7 +207,8 @@ export const handler = async (event, context) => {
             data: {
                 tickets,
                 count: tickets.length,
-                nextToken
+                nextToken,
+                stats
             }
         });
 

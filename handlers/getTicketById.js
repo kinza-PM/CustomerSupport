@@ -56,6 +56,10 @@ export const handler = async (event, context) => {
             adminNotes: result.Item.adminNotes?.S,
             assignedTo: result.Item.assignedTo?.S,
             priority: result.Item.priority?.S || 'normal',
+            source: result.Item.source?.S,
+            conversationId: result.Item.conversationId?.S,
+            category: result.Item.category?.S,
+            subcategory: result.Item.subcategory?.S,
             createdAt: result.Item.createdAt.S,
             updatedAt: result.Item.updatedAt.S
         };
