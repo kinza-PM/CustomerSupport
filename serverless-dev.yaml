@@ -3,7 +3,10 @@ frameworkVersion: "3"
 
 custom:
   serverlessSsmFetch: {}
-   
+  prune:
+    automatic: true
+    number: 3
+    
 provider:
   name: aws
   runtime: nodejs20.x
@@ -37,6 +40,8 @@ provider:
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-status-${self:provider.stage}
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-history-${self:provider.stage}
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-history-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/internal-notes-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/internal-notes-${self:provider.stage}/index/*
 
         - Effect: Allow
           Action:
@@ -50,6 +55,7 @@ provider:
     TICKET_REASONS_TABLE: ticket-reasons-${self:provider.stage}
     TICKET_STATUS_TABLE: ticket-status-${self:provider.stage}
     TICKET_HISTORY_TABLE: ticket-history-${self:provider.stage}
+    INTERNAL_NOTES_TABLE: internal-notes-${self:provider.stage}
     ATTACHMENTS_BUCKET: customer-support-attachments-${self:provider.stage}
     ERROR_LOG_QUEUE_URL: https://sqs.eu-west-1.amazonaws.com/${aws:accountId}/error-log-queue-${self:provider.stage}
 
@@ -190,6 +196,47 @@ functions:
               - Authorization
             allowCredentials: true
 
+  # Internal Notes Functions
+  addInternalNote:
+    handler: handlers/addInternalNote.handler
+    timeout: 30
+    memorySize: 256
+    layers:
+      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+    events:
+      - http:
+          path: /ticket/{ticketId}/notes
+          method: post
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  getInternalNotes:
+    handler: handlers/getInternalNotes.handler
+    timeout: 30
+    memorySize: 256
+    layers:
+      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+    events:
+      - http:
+          path: /ticket/{ticketId}/notes
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
 resources:
   Resources:
    
@@ -286,9 +333,35 @@ resources:
             Projection:
               ProjectionType: ALL
 
+    InternalNotesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: internal-notes-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: noteId
+            AttributeType: S
+          - AttributeName: ticketId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: noteId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: TicketIdIndex
+            KeySchema:
+              - AttributeName: ticketId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
   Outputs:
     AttachmentsBucketName:
       Value: !Ref AttachmentsBucket
 
 plugins:
   - serverless-ssm-fetch
+  - serverless-prune-plugin

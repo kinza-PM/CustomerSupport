@@ -140,6 +140,26 @@ export const handler = async (event, context) => {
 
         const result = await dynamo.send(command);
 
+        // Get complete stats from full table scan (without pagination limit)
+        const statsCommand = new ScanCommand({
+            TableName: process.env.SUPPORT_TICKETS_TABLE,
+            ProjectionExpression: '#status, createdAt, assignedTo, priority',
+            ExpressionAttributeNames: {
+                '#status': 'status'
+            }
+        });
+        
+        let allStatsItems = [];
+        let statsResult = await dynamo.send(statsCommand);
+        allStatsItems = allStatsItems.concat(statsResult.Items);
+        
+        // Continue scanning if there are more items
+        while (statsResult.LastEvaluatedKey) {
+            statsCommand.ExclusiveStartKey = statsResult.LastEvaluatedKey;
+            statsResult = await dynamo.send(statsCommand);
+            allStatsItems = allStatsItems.concat(statsResult.Items);
+        }
+
         // Format tickets
         const tickets = result.Items.map(item => ({
             ticketId: item.ticketId.S,
@@ -162,25 +182,27 @@ export const handler = async (event, context) => {
             subcategory: item.subcategory?.S,
             createdAt: item.createdAt.S,
             updatedAt: item.updatedAt.S
-        }));
+        }))
+        // Sort by createdAt descending (newest first)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-        // Calculate statistics from filtered results
+        // Calculate statistics from ALL tickets (not just current page)
         const now = new Date();
         const slaThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         
         const stats = {
-            openTickets: result.Items.filter(item => 
+            openTickets: allStatsItems.filter(item => 
                 item.status.S === 'open' || item.status.S === 'pending'
             ).length,
-            slaBreached: result.Items.filter(item => {
+            slaBreached: allStatsItems.filter(item => {
                 const isOpen = item.status.S === 'open' || item.status.S === 'pending';
                 const createdAt = new Date(item.createdAt.S);
                 return isOpen && createdAt < slaThreshold;
             }).length,
-            unassignedTickets: result.Items.filter(item => 
+            unassignedTickets: allStatsItems.filter(item => 
                 !item.assignedTo || !item.assignedTo.S
             ).length,
-            escalatedTickets: result.Items.filter(item => 
+            escalatedTickets: allStatsItems.filter(item => 
                 item.priority?.S === 'high' || item.priority?.S === 'urgent'
             ).length
         };
