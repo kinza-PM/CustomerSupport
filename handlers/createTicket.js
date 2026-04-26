@@ -11,6 +11,7 @@ import {
     parseMultipartFormData
 } from "../helper/helper.js";
 import { logTicketHistory } from "../lib/historyLogger.js";
+import { emitTicketCreated } from "../lib/eventEmitter.js";
 
 const dynamo = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-1" });
 
@@ -174,6 +175,18 @@ export const handler = async (event, context) => {
             },
             'guest',
             'customer'
+        );
+
+        // Emit real-time event to AppSync (fire-and-forget, non-blocking)
+        emitTicketCreated({
+            ticketId,
+            name: sanitizeInput(name),
+            email: email.toLowerCase(),
+            reason,
+            status: defaultStatus,
+            createdAt: timestamp
+        }).catch(err => 
+            console.error('Event emission failed:', err.message)
         );
 
         // Return response

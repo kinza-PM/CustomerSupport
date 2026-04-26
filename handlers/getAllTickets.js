@@ -105,10 +105,9 @@ export const handler = async (event, context) => {
             }
         }
 
-        // Build Scan command with filters
+        // Build Scan command with filters (NO LIMIT - fetch all for proper sorting)
         let commandParams = {
-            TableName: process.env.SUPPORT_TICKETS_TABLE,
-            Limit: limit ? parseInt(limit) : 50
+            TableName: process.env.SUPPORT_TICKETS_TABLE
         };
 
         // Add filter expression if any filters are applied
@@ -122,23 +121,18 @@ export const handler = async (event, context) => {
             commandParams.ExpressionAttributeValues = expressionAttributeValues;
         }
 
-        // Add pagination
-        if (lastEvaluatedKey) {
-            try {
-                commandParams.ExclusiveStartKey = JSON.parse(
-                    Buffer.from(lastEvaluatedKey, 'base64').toString('utf-8')
-                );
-            } catch (error) {
-                return createResponse(400, {
-                    success: false,
-                    message: "Invalid pagination token"
-                });
-            }
-        }
-
+        // Fetch ALL matching tickets (no pagination limit)
         const command = new ScanCommand(commandParams);
+        let allItems = [];
+        let result = await dynamo.send(command);
+        allItems = allItems.concat(result.Items);
 
-        const result = await dynamo.send(command);
+        // Continue scanning if there are more items
+        while (result.LastEvaluatedKey) {
+            command.ExclusiveStartKey = result.LastEvaluatedKey;
+            result = await dynamo.send(command);
+            allItems = allItems.concat(result.Items);
+        }
 
         // Get complete stats from full table scan (without pagination limit)
         const statsCommand = new ScanCommand({
@@ -160,8 +154,8 @@ export const handler = async (event, context) => {
             allStatsItems = allStatsItems.concat(statsResult.Items);
         }
 
-        // Format tickets
-        const tickets = result.Items.map(item => ({
+        // Format and sort ALL tickets by createdAt descending (newest first)
+        const allTickets = allItems.map(item => ({
             ticketId: item.ticketId.S,
             name: item.name.S,
             email: item.email.S,
@@ -183,10 +177,15 @@ export const handler = async (event, context) => {
             createdAt: item.createdAt.S,
             updatedAt: item.updatedAt.S
         }))
-        // Sort by createdAt descending (newest first)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-        // Calculate statistics from ALL tickets (not just current page)
+        // Apply pagination to sorted results
+        const pageSize = limit ? parseInt(limit) : 10;
+        const startIndex = lastEvaluatedKey ? parseInt(lastEvaluatedKey) : 0;
+        const endIndex = startIndex + pageSize;
+        const tickets = allTickets.slice(startIndex, endIndex);
+
+        // Calculate statistics from ALL tickets
         const now = new Date();
         const slaThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         
@@ -207,12 +206,10 @@ export const handler = async (event, context) => {
             ).length
         };
 
-        // Create pagination token
+        // Create pagination token (use index-based pagination)
         let nextToken = null;
-        if (result.LastEvaluatedKey) {
-            nextToken = Buffer.from(
-                JSON.stringify(result.LastEvaluatedKey)
-            ).toString('base64');
+        if (endIndex < allTickets.length) {
+            nextToken = endIndex.toString();
         }
 
         // Log trace

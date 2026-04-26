@@ -1,6 +1,7 @@
 import { DynamoDBClient, GetItemCommand, UpdateItemCommand, QueryCommand } from "@aws-sdk/client-dynamodb";
 import { createResponse, setRequestContext, sanitizeInput, logError, parseMultipartFormData, uploadAttachment } from "../helper/helper.js";
 import { logTicketHistory } from "../lib/historyLogger.js";
+import { emitTicketUpdated } from "../lib/eventEmitter.js";
 
 const dynamo = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-1" });
 
@@ -182,6 +183,11 @@ export const handler = async (event, context) => {
             changes,
             userId,
             userType
+        );
+
+        // Emit real-time event to AppSync (fire-and-forget, non-blocking)
+        emitTicketUpdated(ticketId, changes).catch(err => 
+            console.error('Event emission failed:', err.message)
         );
 
         // Format response

@@ -26,6 +26,7 @@
     "@aws-sdk/client-sqs": "^3.932.0",
     "@aws-sdk/lib-dynamodb": "^3.858.0",
     "busboy": "^1.6.0",
+    "graphql-request": "^6.0.0",
     "ioredis": "^5.8.2",
     "serverless": "^3.40.0",
     "serverless-dotenv-plugin": "^6.0.0",

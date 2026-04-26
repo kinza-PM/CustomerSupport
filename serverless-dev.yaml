@@ -49,6 +49,12 @@ provider:
           Resource:
             - arn:aws:sqs:eu-west-1:${aws:accountId}:error-log-queue-${self:provider.stage}
 
+        - Effect: Allow
+          Action:
+            - appsync:GraphQL
+          Resource:
+            - arn:aws:appsync:eu-west-1:${aws:accountId}:apis/*/types/Mutation/fields/*
+
   environment:
     STAGE: ${self:provider.stage}
     SUPPORT_TICKETS_TABLE: support-tickets-${self:provider.stage}
@@ -58,6 +64,8 @@ provider:
     INTERNAL_NOTES_TABLE: internal-notes-${self:provider.stage}
     ATTACHMENTS_BUCKET: customer-support-attachments-${self:provider.stage}
     ERROR_LOG_QUEUE_URL: https://sqs.eu-west-1.amazonaws.com/${aws:accountId}/error-log-queue-${self:provider.stage}
+    APPSYNC_ENDPOINT: !Sub 'https://${TicketEventsApi.GraphQLEndpoint}'
+    APPSYNC_API_KEY: !GetAtt TicketEventsApiKey.ApiKey
 
 package:
   patterns:
@@ -127,6 +135,24 @@ functions:
     events:
       - http:
           path: /tickets
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-API-KEY
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  getPendingTicketsCount:
+    handler: handlers/getPendingTicketsCount.handler
+    timeout: 30
+    memorySize: 512
+    events:
+      - http:
+          path: /tickets/pending/count
           method: get
           cors:
             origin: '*'
@@ -240,6 +266,122 @@ functions:
 resources:
   Resources:
    
+    ###########################
+    ### AppSync API
+    ###########################
+    TicketEventsApi:
+      Type: AWS::AppSync::GraphQLApi
+      Properties:
+        Name: ticket-events-api-${self:provider.stage}
+        AuthenticationType: API_KEY
+        ApiKeyConfig:
+          Description: API Key for ticket events
+          Expires: 365
+
+    TicketEventsApiKey:
+      Type: AWS::AppSync::ApiKey
+      Properties:
+        ApiId: !GetAtt TicketEventsApi.ApiId
+        Description: API Key for ticket events
+        Expires: !Sub '${AWS:Epoch + 31536000}'
+
+    TicketEventsSchema:
+      Type: AWS::AppSync::GraphQLSchema
+      Properties:
+        ApiId: !GetAtt TicketEventsApi.ApiId
+        Definition: |
+          type Query {
+            dummy: String
+          }
+
+          type Mutation {
+            publishTicketCreated(input: TicketCreatedInput!): TicketCreatedEvent
+            publishTicketUpdated(input: TicketUpdatedInput!): TicketUpdatedEvent
+          }
+
+          type Subscription {
+            onTicketCreated: TicketCreatedEvent
+              @aws_subscribe(mutations: ["publishTicketCreated"])
+            onTicketUpdated: TicketUpdatedEvent
+              @aws_subscribe(mutations: ["publishTicketUpdated"])
+          }
+
+          input TicketCreatedInput {
+            ticketId: String!
+            name: String!
+            email: String!
+            reason: String!
+            status: String!
+            createdAt: String!
+          }
+
+          type TicketCreatedEvent {
+            ticketId: String!
+            name: String!
+            email: String!
+            reason: String!
+            status: String!
+            createdAt: String!
+          }
+
+          input TicketUpdatedInput {
+            ticketId: String!
+            changes: String!
+            updatedAt: String!
+          }
+
+          type TicketUpdatedEvent {
+            ticketId: String!
+            changes: String!
+            updatedAt: String!
+          }
+
+    TicketCreatedDataSource:
+      Type: AWS::AppSync::DataSource
+      Properties:
+        ApiId: !GetAtt TicketEventsApi.ApiId
+        Name: TicketCreatedDataSource
+        Type: NONE
+
+    TicketUpdatedDataSource:
+      Type: AWS::AppSync::DataSource
+      Properties:
+        ApiId: !GetAtt TicketEventsApi.ApiId
+        Name: TicketUpdatedDataSource
+        Type: NONE
+
+    PublishTicketCreatedResolver:
+      Type: AWS::AppSync::Resolver
+      Properties:
+        ApiId: !GetAtt TicketEventsApi.ApiId
+        TypeName: Mutation
+        FieldName: publishTicketCreated
+        DataSourceName: !GetAtt TicketCreatedDataSource.Name
+        Kind: UNIT
+        RequestMappingTemplate: |
+          {
+            "version": "2017-02-28",
+            "payload": $util.toJson($input)
+          }
+        ResponseMappingTemplate: |
+          $util.toJson($payload)
+
+    PublishTicketUpdatedResolver:
+      Type: AWS::AppSync::Resolver
+      Properties:
+        ApiId: !GetAtt TicketEventsApi.ApiId
+        TypeName: Mutation
+        FieldName: publishTicketUpdated
+        DataSourceName: !GetAtt TicketUpdatedDataSource.Name
+        Kind: UNIT
+        RequestMappingTemplate: |
+          {
+            "version": "2017-02-28",
+            "payload": $util.toJson($input)
+          }
+        ResponseMappingTemplate: |
+          $util.toJson($payload)
+
     ###########################
     ### S3 Buckets
     ###########################
@@ -361,6 +503,12 @@ resources:
   Outputs:
     AttachmentsBucketName:
       Value: !Ref AttachmentsBucket
+    TicketEventsApiEndpoint:
+      Value: !Sub 'https://${TicketEventsApi.GraphQLEndpoint}'
+      Description: AppSync GraphQL Endpoint for ticket events
+    TicketEventsApiKey:
+      Value: !GetAtt TicketEventsApiKey.ApiKey
+      Description: API Key for ticket events AppSync API
 
 plugins:
   - serverless-ssm-fetch
