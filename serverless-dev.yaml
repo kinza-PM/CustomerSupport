@@ -34,26 +34,26 @@ provider:
             - dynamodb:Scan
             - dynamodb:DeleteItem
           Resource:
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-tickets-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-tickets-${self:provider.stage}/index/*
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-reasons-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-status-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-history-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/ticket-history-${self:provider.stage}/index/*
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/internal-notes-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/internal-notes-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/support-tickets-${self:provider.stage}
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/support-tickets-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/ticket-reasons-${self:provider.stage}
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/ticket-status-${self:provider.stage}
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/ticket-history-${self:provider.stage}
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/ticket-history-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/internal-notes-${self:provider.stage}
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/internal-notes-${self:provider.stage}/index/*
 
         - Effect: Allow
           Action:
             - sqs:SendMessage
           Resource:
-            - arn:aws:sqs:eu-west-1:${aws:accountId}:error-log-queue-${self:provider.stage}
+            - arn:aws:sqs:${aws:region}:${aws:accountId}:error-log-queue-${self:provider.stage}
 
         - Effect: Allow
           Action:
             - appsync:GraphQL
           Resource:
-            - arn:aws:appsync:eu-west-1:${aws:accountId}:apis/*/types/Mutation/fields/*
+            - arn:aws:appsync:${aws:region}:${aws:accountId}:apis/*/types/Mutation/fields/*
 
   environment:
     STAGE: ${self:provider.stage}
@@ -63,9 +63,9 @@ provider:
     TICKET_HISTORY_TABLE: ticket-history-${self:provider.stage}
     INTERNAL_NOTES_TABLE: internal-notes-${self:provider.stage}
     ATTACHMENTS_BUCKET: customer-support-attachments-${self:provider.stage}
-    ERROR_LOG_QUEUE_URL: https://sqs.eu-west-1.amazonaws.com/${aws:accountId}/error-log-queue-${self:provider.stage}
-    APPSYNC_ENDPOINT: !Sub 'https://${TicketEventsApi.GraphQLEndpoint}'
-    APPSYNC_API_KEY: !GetAtt TicketEventsApiKey.ApiKey
+    ERROR_LOG_QUEUE_URL: https://sqs.${aws:region}.amazonaws.com/${aws:accountId}/error-log-queue-${self:provider.stage}
+    APPSYNC_ENDPOINT: !ImportValue TicketEventsApiEndpoint-${self:provider.stage}
+    APPSYNC_API_KEY: !ImportValue TicketEventsApiKey-${self:provider.stage}
 
 package:
   patterns:
@@ -111,7 +111,7 @@ functions:
     timeout: 30
     memorySize: 512
     layers:
-      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+      - arn:aws:lambda:${aws:region}:${aws:accountId}:layer:authorizerLayer:11
     events:
       - http:
           path: /ticket/{ticketId}
@@ -131,7 +131,7 @@ functions:
     timeout: 30
     memorySize: 512
     layers:
-      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+      - arn:aws:lambda:${aws:region}:${aws:accountId}:layer:authorizerLayer:11
     events:
       - http:
           path: /tickets
@@ -169,7 +169,7 @@ functions:
     timeout: 30
     memorySize: 512
     layers:
-      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+      - arn:aws:lambda:${aws:region}:${aws:accountId}:layer:authorizerLayer:11
     events:
       - http:
           path: /ticket/{ticketId}
@@ -189,7 +189,7 @@ functions:
     timeout: 30
     memorySize: 512
     layers:
-      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+      - arn:aws:lambda:${aws:region}:${aws:accountId}:layer:authorizerLayer:11
     events:
       - http:
           path: /ticket/{ticketId}
@@ -228,7 +228,7 @@ functions:
     timeout: 30
     memorySize: 256
     layers:
-      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+      - arn:aws:lambda:${aws:region}:${aws:accountId}:layer:authorizerLayer:11
     events:
       - http:
           path: /ticket/{ticketId}/notes
@@ -248,7 +248,7 @@ functions:
     timeout: 30
     memorySize: 256
     layers:
-      - arn:aws:lambda:eu-west-1:${aws:accountId}:layer:authorizerLayer:11
+      - arn:aws:lambda:${aws:region}:${aws:accountId}:layer:authorizerLayer:11
     events:
       - http:
           path: /ticket/{ticketId}/notes
@@ -266,122 +266,6 @@ functions:
 resources:
   Resources:
    
-    ###########################
-    ### AppSync API
-    ###########################
-    TicketEventsApi:
-      Type: AWS::AppSync::GraphQLApi
-      Properties:
-        Name: ticket-events-api-${self:provider.stage}
-        AuthenticationType: API_KEY
-        ApiKeyConfig:
-          Description: API Key for ticket events
-          Expires: 365
-
-    TicketEventsApiKey:
-      Type: AWS::AppSync::ApiKey
-      Properties:
-        ApiId: !GetAtt TicketEventsApi.ApiId
-        Description: API Key for ticket events
-        Expires: !Sub '${AWS:Epoch + 31536000}'
-
-    TicketEventsSchema:
-      Type: AWS::AppSync::GraphQLSchema
-      Properties:
-        ApiId: !GetAtt TicketEventsApi.ApiId
-        Definition: |
-          type Query {
-            dummy: String
-          }
-
-          type Mutation {
-            publishTicketCreated(input: TicketCreatedInput!): TicketCreatedEvent
-            publishTicketUpdated(input: TicketUpdatedInput!): TicketUpdatedEvent
-          }
-
-          type Subscription {
-            onTicketCreated: TicketCreatedEvent
-              @aws_subscribe(mutations: ["publishTicketCreated"])
-            onTicketUpdated: TicketUpdatedEvent
-              @aws_subscribe(mutations: ["publishTicketUpdated"])
-          }
-
-          input TicketCreatedInput {
-            ticketId: String!
-            name: String!
-            email: String!
-            reason: String!
-            status: String!
-            createdAt: String!
-          }
-
-          type TicketCreatedEvent {
-            ticketId: String!
-            name: String!
-            email: String!
-            reason: String!
-            status: String!
-            createdAt: String!
-          }
-
-          input TicketUpdatedInput {
-            ticketId: String!
-            changes: String!
-            updatedAt: String!
-          }
-
-          type TicketUpdatedEvent {
-            ticketId: String!
-            changes: String!
-            updatedAt: String!
-          }
-
-    TicketCreatedDataSource:
-      Type: AWS::AppSync::DataSource
-      Properties:
-        ApiId: !GetAtt TicketEventsApi.ApiId
-        Name: TicketCreatedDataSource
-        Type: NONE
-
-    TicketUpdatedDataSource:
-      Type: AWS::AppSync::DataSource
-      Properties:
-        ApiId: !GetAtt TicketEventsApi.ApiId
-        Name: TicketUpdatedDataSource
-        Type: NONE
-
-    PublishTicketCreatedResolver:
-      Type: AWS::AppSync::Resolver
-      Properties:
-        ApiId: !GetAtt TicketEventsApi.ApiId
-        TypeName: Mutation
-        FieldName: publishTicketCreated
-        DataSourceName: !GetAtt TicketCreatedDataSource.Name
-        Kind: UNIT
-        RequestMappingTemplate: |
-          {
-            "version": "2017-02-28",
-            "payload": $util.toJson($input)
-          }
-        ResponseMappingTemplate: |
-          $util.toJson($payload)
-
-    PublishTicketUpdatedResolver:
-      Type: AWS::AppSync::Resolver
-      Properties:
-        ApiId: !GetAtt TicketEventsApi.ApiId
-        TypeName: Mutation
-        FieldName: publishTicketUpdated
-        DataSourceName: !GetAtt TicketUpdatedDataSource.Name
-        Kind: UNIT
-        RequestMappingTemplate: |
-          {
-            "version": "2017-02-28",
-            "payload": $util.toJson($input)
-          }
-        ResponseMappingTemplate: |
-          $util.toJson($payload)
-
     ###########################
     ### S3 Buckets
     ###########################
@@ -503,12 +387,6 @@ resources:
   Outputs:
     AttachmentsBucketName:
       Value: !Ref AttachmentsBucket
-    TicketEventsApiEndpoint:
-      Value: !Sub 'https://${TicketEventsApi.GraphQLEndpoint}'
-      Description: AppSync GraphQL Endpoint for ticket events
-    TicketEventsApiKey:
-      Value: !GetAtt TicketEventsApiKey.ApiKey
-      Description: API Key for ticket events AppSync API
 
 plugins:
   - serverless-ssm-fetch
